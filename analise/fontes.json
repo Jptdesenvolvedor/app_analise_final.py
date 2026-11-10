@@ -1,0 +1,107 @@
+{
+  "FONTES_OFICIAIS": {
+    "AAPL": {
+      "nome": "Apple Inc. — Investor Relations",
+      "url": "https://investor.apple.com/investor-relations/default.aspx"
+    },
+    "NVDA": {
+      "nome": "NVIDIA Corporation — Investor Relations",
+      "url": "https://investor.nvidia.com/home/default.aspx"
+    },
+    "MSFT": {
+      "nome": "Microsoft Corporation — Investor Relations",
+      "url": "https://www.microsoft.com/en-us/investor"
+    },
+    "PETR4.SA": {
+      "nome": "Petrobras — Relações com Investidores",
+      "url": "https://www.investidorpetrobras.com.br/"
+    },
+    "VALE3.SA": {
+      "nome": "Vale S.A. — Relações com Investidores",
+      "url": "https://vale.com/investors"
+    },
+    "ITUB4.SA": {
+      "nome": "Itaú Unibanco — Relações com Investidores",
+      "url": "https://www.itau.com.br/relacoes-com-investidores/Home.aspx?linguagem=pt"
+    },
+    "BTC-USD": {
+      "nome": "Bitcoin.org (referência do protocolo)",
+      "url": "https://bitcoin.org/en/"
+    },
+    "ETH-USD": {
+      "nome": "Ethereum Foundation",
+      "url": "https://ethereum.org/en/foundation/"
+    },
+    "SOL-USD": {
+      "nome": "Solana Foundation",
+      "url": "https://solana.org/"
+    }
+  },
+  "CRIPTO_SLUGS": {
+    "BTC-USD": "bitcoin",
+    "ETH-USD": "ethereum",
+    "SOL-USD": "solana"
+  },
+  "FONTES_GERAIS": {
+    "Cotações e dados de mercado": [
+      [
+        "Yahoo Finance",
+        "https://finance.yahoo.com/"
+      ],
+      [
+        "TradingView",
+        "https://www.tradingview.com/"
+      ],
+      [
+        "Investing.com",
+        "https://www.investing.com/"
+      ],
+      [
+        "StockAnalysis.com",
+        "https://stockanalysis.com/"
+      ]
+    ],
+    "Renda variável Brasil (fundamentos e regulação)": [
+      [
+        "Fundamentus",
+        "https://www.fundamentus.com.br/"
+      ],
+      [
+        "StatusInvest",
+        "https://statusinvest.com.br/"
+      ],
+      [
+        "B3 — Empresas listadas",
+        "https://www.b3.com.br/pt_br/produtos-e-servicos/negociacao/renda-variavel/empresas-listadas.htm"
+      ],
+      [
+        "CVM — Consulta de documentos (RAD)",
+        "https://www.rad.cvm.gov.br/ENET/frmConsultaExternaCVM.aspx"
+      ]
+    ],
+    "Regulação (EUA)": [
+      [
+        "SEC EDGAR — Full Text Search",
+        "https://www.sec.gov/edgar/search/"
+      ]
+    ],
+    "Notícias e análises especializadas (Brasil)": [
+      [
+        "InfoMoney",
+        "https://www.infomoney.com.br/"
+      ],
+      [
+        "Valor Investe",
+        "https://valorinveste.globo.com/"
+      ],
+      [
+        "Money Times",
+        "https://www.moneytimes.com.br/"
+      ],
+      [
+        "Suno Research",
+        "https://www.suno.com.br/research/"
+      ]
+    ]
+  }
+}
