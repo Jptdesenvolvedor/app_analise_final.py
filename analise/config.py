@@ -5,15 +5,15 @@ from __future__ import annotations
 from typing import NamedTuple, Optional
 
 ATIVOS_FIXOS = {
-    "Criptomoedas": {
-        "Bitcoin (BTC)": "BTC-USD",
-        "Ethereum (ETH)": "ETH-USD",
-        "Solana (SOL)": "SOL-USD",
-    },
     "Ações Americanas": {
         "Apple (AAPL)": "AAPL",
         "Nvidia (NVDA)": "NVDA",
         "Microsoft (MSFT)": "MSFT",
+    },
+    "Criptomoedas": {
+        "Bitcoin (BTC)": "BTC-USD",
+        "Ethereum (ETH)": "ETH-USD",
+        "Solana (SOL)": "SOL-USD",
     },
     "Ações Brasil": {
         "Petrobras (PETR4)": "PETR4.SA",

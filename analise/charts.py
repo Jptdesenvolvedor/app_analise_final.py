@@ -148,9 +148,10 @@ def grafico_principal(
 
     fig.update_xaxes(rangebreaks=_rangebreaks(df, cripto, intraday_horario), rangeslider_visible=False)
     fig.update_layout(
-        title=titulo, height=420 + 170 * (len(linhas) - 1), hovermode="x unified",
-        margin=dict(l=10, r=10, t=50, b=10),
-        legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="left", x=0, font=dict(size=10)),
+        title=dict(text=titulo, x=0, xanchor="left", y=0.995, yanchor="top"),
+        height=420 + 170 * (len(linhas) - 1), hovermode="x unified",
+        margin=dict(l=10, r=10, t=95, b=10),
+        legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="left", x=0, font=dict(size=10)),
     )
     return fig
 

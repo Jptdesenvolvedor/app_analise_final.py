@@ -126,6 +126,43 @@ def calcular_fibonacci(df: pd.DataFrame) -> Fibonacci | None:
     return Fibonacci("alta" if alta else "baixa", niveis)
 
 
+@dataclass
+class FibonacciPerna(Fibonacci):
+    """Fibonacci da última perna de alta: retração atual, zona de ouro e alvos de extensão."""
+
+    retracao_atual: float | None = None  # 0 = no topo da perna, 1 = no fundo
+    na_zona_ouro: bool = False           # entre 38,2% e 61,8% de retração
+    extensoes: dict[str, float] | None = None
+
+
+def calcular_fibonacci_perna(df: pd.DataFrame, janela: int = 120,
+                             perna_minima: float = 0.10) -> FibonacciPerna | None:
+    """Retração sobre a perna de alta mais recente, usando só os últimos `janela` candles.
+
+    Perna = maior máxima da janela e a menor mínima ANTERIOR a ela (sem olhar para o futuro).
+    Só é válida se a perna tiver pelo menos `perna_minima` (10%) do preço do topo.
+    Extensões 127,2% e 161,8% = alvos projetados acima do topo.
+    """
+    if len(df) < 20:
+        return None
+    rec = df.tail(janela)
+    topo_s = rec["High"] if "High" in rec.columns else rec["Close"]
+    fundo_s = rec["Low"] if "Low" in rec.columns else rec["Close"]
+    i_topo = int(np.argmax(topo_s.to_numpy()))
+    if i_topo == 0:
+        return None
+    topo = float(topo_s.iloc[i_topo])
+    fundo = float(fundo_s.iloc[:i_topo].min())
+    dif = topo - fundo
+    if dif < perna_minima * topo:
+        return None
+    niveis = {f"{r * 100:.1f}%": topo - r * dif for r in FIB_RATIOS}
+    ext = {"127.2%": fundo + 1.272 * dif, "161.8%": fundo + 1.618 * dif}
+    retr = (topo - float(rec["Close"].iloc[-1])) / dif
+    return FibonacciPerna("alta", niveis, retracao_atual=float(retr),
+                          na_zona_ouro=0.382 <= retr <= 0.618, extensoes=ext)
+
+
 # --------------------------------------------------------------------------- #
 # Pivôs e suporte/resistência
 # --------------------------------------------------------------------------- #
