@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from html import escape
 
+from .analistas import Analistas
+from .premercado import Sessao
 from .sinal import Decisao, Tendencia
 
 COR = {"alta": "#16a34a", "baixa": "#dc2626", "neutro": "#6b7280", "aviso": "#d97706"}
@@ -42,6 +44,10 @@ CSS = """
 .rt-chip-d{font-size:.74rem;opacity:.7;margin-top:2px;line-height:1.3}
 .rt-plano{display:flex;flex-wrap:wrap;gap:18px;margin-top:10px;font-size:.9rem}
 .rt-plano b{font-weight:700}
+.rt-analistas{margin-top:10px;padding:9px 12px;border-radius:10px;font-size:.88rem;
+  background:rgba(142,36,170,.08);border:1px solid rgba(142,36,170,.30)}
+.rt-sessao{display:inline-flex;align-items:center;gap:8px;margin-top:6px;padding:4px 12px;border-radius:999px;
+  font-size:.82rem;border:1px solid rgba(128,128,128,.35)}
 .rt-aviso{font-size:.72rem;opacity:.6;margin-top:10px}
 </style>
 """
@@ -81,8 +87,40 @@ def barra_score(score: float) -> str:
             f'<div class="rt-escala">{rotulos}</div>')
 
 
+def faixa_sessao(sess: Sessao | None) -> str:
+    """Pílula com o estado do mercado e, se houver, o preço do pré-mercado/after-hours."""
+    if sess is None:
+        return ""
+    ponto = {"PRE": "#fb8c00", "REGULAR": COR["alta"], "POST": "#8e24aa", "FECHADO": COR["neutro"]}[sess.estado]
+    txt = f'<span style="color:{ponto}">●</span> <b>{escape(sess.rotulo)}</b>'
+    if sess.tem_estendido:
+        cor = COR["alta"] if sess.var_estendida >= 0 else COR["baixa"]
+        hora = f" às {sess.horario:%H:%M} (Brasília)" if sess.horario is not None else ""
+        txt += (f' · {sess.preco_estendido:,.2f} <span style="color:{cor};font-weight:700">'
+                f'({sess.var_estendida:+.2%})</span> vs. {escape(sess.referencia)}{hora}')
+    return f'<div class="rt-sessao">{txt}</div>'
+
+
+def linha_analistas(a: Analistas | None) -> str:
+    """Faixa 'Alvo dos analistas' do cartão; vazia se não há cobertura."""
+    if a is None or a.media is None:
+        return ""
+    up = a.upside_media
+    cor = COR["alta"] if (up or 0) >= 0 else COR["baixa"]
+    partes = [f'🎯 Alvo dos analistas <b>{a.media:,.2f}</b>'
+              + (f' <span style="color:{cor};font-weight:700">({up:+.1%})</span>' if up is not None else "")]
+    if a.baixo is not None and a.alto is not None:
+        partes.append(f"faixa {a.baixo:,.2f}–{a.alto:,.2f}")
+    if a.n:
+        partes.append(f"{a.n} analistas")
+    if a.recomendacao:
+        partes.append(f"recomendação: {escape(a.recomendacao)}")
+    return f'<div class="rt-analistas">{" · ".join(partes)}</div>'
+
+
 def cartao_decisao(d: Decisao, nome: str, ticker: str, preco: float, variacao: float | None,
-                   quando: str, extras: list[Tendencia] | None = None) -> str:
+                   quando: str, extras: list[Tendencia] | None = None, analistas: Analistas | None = None,
+                   sessao: Sessao | None = None) -> str:
     """HTML completo do painel: ativo, selo do sinal, barra, resumo, tendências e plano de risco."""
     cor = ACAO_COR[d.acao]
     var_txt = "" if variacao is None or variacao != variacao else (
@@ -98,13 +136,13 @@ def cartao_decisao(d: Decisao, nome: str, ticker: str, preco: float, variacao: f
         '<div class="rt-top">'
         f'<div><span class="rt-nome">{escape(nome)} · {escape(ticker)}</span></div>'
         f'<div><span class="rt-preco">{preco:,.2f}</span>{var_txt}</div></div>'
-        f'<div class="rt-sub">Último candle: {escape(quando)}</div>'
+        f'<div class="rt-sub">Último candle: {escape(quando)}</div>{faixa_sessao(sessao)}'
         f'<div class="rt-badge" style="color:{cor};background:{_rgba(cor, .14)};border:2px solid {_rgba(cor, .55)}">'
         f'{ACAO_ICONE[d.acao]} {d.acao}</div>'
         f'<span class="rt-meta">Pontuação {d.score:+.0f}/100 · Confiança {escape(d.confianca)}</span>'
         f'{barra_score(d.score)}'
         f'<div class="rt-resumo">{escape(d.resumo)}</div>'
-        f'<div class="rt-chips">{chips}</div>{plano}'
+        f'<div class="rt-chips">{chips}</div>{plano}{linha_analistas(analistas)}'
         '<div class="rt-aviso">Sinal automático baseado em regras históricas (regime MA200, tendência, momentum e '
         'timing). Não é recomendação de investimento.</div></div>'
     )

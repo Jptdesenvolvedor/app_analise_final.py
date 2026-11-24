@@ -8,6 +8,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+from .analistas import NOMES_GRUPOS, Analistas
 from .backtest import ResultadoBacktest
 from .indicators import Fibonacci
 
@@ -25,6 +26,7 @@ class OpcoesGrafico:
     suporte_resistencia: bool = True
     estocastico: bool = False
     volume_financeiro: bool = False
+    alvos_analistas: bool = False   # linhas de preço-alvo (baixo / médio / alto) dos analistas
 
 
 def _sem_tz(df: pd.DataFrame) -> pd.DataFrame:
@@ -56,6 +58,7 @@ def grafico_principal(
     sr: dict | None = None,
     cripto: bool = False,
     intraday_horario: bool = False,
+    alvos: dict[str, float] | None = None,
 ) -> go.Figure:
     df = _sem_tz(df)
     x = df.index
@@ -101,6 +104,13 @@ def grafico_principal(
             fig.add_hline(y=val, line=dict(dash="dot", width=1, color="rgba(120,120,120,.6)"),
                           annotation_text=f"Fib {lvl}", annotation_position="top left",
                           annotation_font_size=9, row=r["preco"], col=1)
+    if opcoes.alvos_analistas and alvos:
+        for chave, rotulo, largura in (("alto", "Alvo analistas (máx.)", 1), ("media", "Alvo analistas (média)", 2),
+                                       ("baixo", "Alvo analistas (mín.)", 1)):
+            if alvos.get(chave):
+                fig.add_hline(y=alvos[chave], line=dict(dash="dash", width=largura, color="#8e24aa"),
+                              annotation_text=f"{rotulo} {alvos[chave]:,.2f}", annotation_position="bottom left",
+                              annotation_font_size=9, row=r["preco"], col=1)
     if opcoes.suporte_resistencia and sr:
         for nivel, toques in sr.get("suportes", []):
             fig.add_hline(y=nivel, line=dict(width=1.2, color=ALTA),
@@ -180,4 +190,81 @@ def grafico_backtest(res: ResultadoBacktest, nome: str) -> go.Figure:
         fig.add_trace(go.Scatter(x=s.index, y=s, name=rotulo, line=dict(color=cor)))
     fig.update_layout(title="Curva de capital (início = 1,0)", hovermode="x unified", height=400,
                       margin=dict(l=10, r=10, t=50, b=10))
+    return fig
+
+
+def grafico_alvos(a: Analistas) -> go.Figure:
+    """Faixa de preços-alvo (mínimo a máximo) com marcadores para média, mediana e preço atual."""
+    fig = go.Figure()
+    if a.baixo is not None and a.alto is not None:
+        fig.add_trace(go.Scatter(x=[a.baixo, a.alto], y=["Alvos", "Alvos"], mode="lines",
+                                 line=dict(width=14, color="rgba(142,36,170,.25)"), hoverinfo="skip",
+                                 name="Faixa (mín. a máx.)"))
+    pontos = (("Mínimo", a.baixo, "#8e24aa", "circle"), ("Média", a.media, "#6a1b9a", "diamond"),
+              ("Mediana", a.mediana, "#ab47bc", "square"), ("Máximo", a.alto, "#8e24aa", "circle"),
+              ("Preço atual", a.preco_atual, "#ff9800", "line-ns"))
+    for nome, valor, cor, simbolo in pontos:
+        if valor is None:
+            continue
+        extra = "" if nome == "Preço atual" or not a.preco_atual else f" ({valor / a.preco_atual - 1:+.1%})"
+        fig.add_trace(go.Scatter(x=[valor], y=["Alvos"], mode="markers+text", name=nome,
+                                 marker=dict(size=16 if nome != "Preço atual" else 24, color=cor, symbol=simbolo,
+                                             line=dict(width=3, color=cor)),
+                                 text=[f"{nome}<br>{valor:,.2f}{extra}"],
+                                 textposition="top center" if nome in ("Média", "Preço atual") else "bottom center",
+                                 hovertemplate=f"{nome}: %{{x:,.2f}}{extra}<extra></extra>"))
+    fig.update_layout(height=260, showlegend=False, margin=dict(l=10, r=10, t=30, b=30),
+                      xaxis=dict(title="Preço", zeroline=False), yaxis=dict(visible=False),
+                      title=dict(text="Preço-alvo dos analistas × preço atual", x=0, xanchor="left"))
+    return fig
+
+
+def grafico_recomendacoes(a: Analistas) -> go.Figure:
+    """Distribuição das recomendações hoje e ~3 meses antes (barras empilhadas)."""
+    cores = {"Compra forte": "#1b8f4a", "Compra": "#66bb6a", "Neutro": "#9e9e9e", "Venda": "#ef9a9a",
+             "Venda forte": "#d32f2f"}
+    linhas = [("Hoje", a.distribuicao)] + ([("3 meses antes", a.distribuicao_anterior)] if a.distribuicao_anterior else [])
+    fig = go.Figure()
+    for _, nome in NOMES_GRUPOS:
+        fig.add_trace(go.Bar(y=[r for r, _ in linhas], x=[d.get(nome, 0) for _, d in linhas], name=nome,
+                             orientation="h", marker_color=cores[nome], text=[d.get(nome, 0) or "" for _, d in linhas],
+                             textposition="inside"))
+    fig.update_layout(barmode="stack", height=230, margin=dict(l=10, r=10, t=30, b=10),
+                      title=dict(text="Recomendações dos analistas", x=0, xanchor="left"),
+                      legend=dict(orientation="h", y=-0.25), xaxis=dict(title="Nº de analistas"))
+    return fig
+
+
+SESSAO_COR = {"PRE": "#fb8c00", "REGULAR": "#1e88e5", "POST": "#8e24aa"}
+SESSAO_NOME = {"PRE": "Pré-mercado", "REGULAR": "Sessão regular", "POST": "After-hours"}
+
+
+def grafico_sessoes(h: pd.DataFrame, fechamento_anterior: float | None = None, titulo: str = "") -> go.Figure:
+    """Preço de 5 em 5 minutos dos últimos dias, colorido por sessão (pré, regular e after-hours).
+
+    `h` vem de `premercado.ultimas_sessoes` (índice em Nova York, coluna `sessao`). Horas sem negociação e fins de
+    semana são escondidos; uma linha tracejada marca o fechamento anterior.
+    """
+    fig = go.Figure()
+    if h.empty:
+        return fig
+    dados = h.copy()
+    dados.index = dados.index.tz_localize(None)                       # Plotly ignora fuso: usa o horário de Nova York
+    dados["dia"] = dados.index.date
+    mostrada: set[str] = set()
+    for (dia, sessao), g in dados.groupby(["dia", "sessao"], sort=True):
+        nome = SESSAO_NOME[sessao]
+        fig.add_trace(go.Scatter(
+            x=g.index, y=g["Close"], mode="lines", name=nome, legendgroup=sessao, showlegend=sessao not in mostrada,
+            line=dict(color=SESSAO_COR[sessao], width=2), hovertemplate=f"{nome}<br>%{{x|%d/%m %H:%M}} NY<br>%{{y:,.2f}}<extra></extra>"))
+        mostrada.add(sessao)
+    if fechamento_anterior:
+        fig.add_hline(y=fechamento_anterior, line=dict(dash="dot", width=1, color="rgba(120,120,120,.8)"),
+                      annotation_text=f"Fechamento anterior {fechamento_anterior:,.2f}", annotation_position="top left",
+                      annotation_font_size=10)
+    fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"]), dict(pattern="hour", bounds=[20, 4])])
+    fig.update_layout(height=380, hovermode="x unified", margin=dict(l=10, r=10, t=50, b=10),
+                      title=dict(text=titulo or "Pré-mercado, sessão regular e after-hours (horário de Nova York)",
+                                 x=0, xanchor="left"),
+                      legend=dict(orientation="h", y=1.08, x=0), yaxis=dict(title="Preço"))
     return fig

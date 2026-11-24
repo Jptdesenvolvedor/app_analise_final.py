@@ -34,6 +34,11 @@ Aplicação web (Streamlit) para análise técnica de ações e criptomoedas, co
   8-K/10-Q/10-K com data e hora de aceite na SEC) e **📰 Notícias** (API da Alpaca, desde abril/2026).
   O app avisa quando a base está defasada e volta ao Yahoo para ativos ou intervalos que ela não cobre
   (ações do Brasil, cripto, intraday). Sem a pasta (ex.: Streamlit Cloud) nada muda: segue só com o Yahoo.
+- **🎯 Analistas:** preço-alvo médio, mediano, máximo e mínimo, nº de analistas, recomendação média, distribuição das
+  recomendações (hoje × 3 meses antes) e as revisões recentes (quem subiu ou baixou o alvo), com opção de desenhar as
+  linhas de alvo no gráfico. Dados de consenso do Yahoo; **não entram no sinal** (não há histórico para validar).
+- **🌅 Pré-mercado:** estado do mercado (pré, aberto, after-hours), preço e variação estendidos no cartão do topo, gráfico
+  dos últimos dias por sessão e estatística de quanto o pré-mercado antecipou a direção do dia. Só ações e ETFs dos EUA.
 - **Fontes e validação:** links de RI, CVM/SEC e provedores; exportação dos dados em CSV.
 
 > ⚠️ Ferramenta educacional. Não é recomendação de investimento; o backtest não inclui impostos nem slippage.
@@ -47,6 +52,8 @@ analise/
   indicators.py        # indicadores, Fibonacci (período e perna recente), suporte/resistência
   regime.py            # regime defensivo, modelo de tendência, momentum, tamanho de posição
   base_local.py        # leitura da base local (candles Alpaca, notícias, RI/balanços da SEC)
+  analistas.py         # preço-alvo e recomendações dos analistas (Yahoo)
+  premercado.py        # pré-mercado e after-hours (sessões de Nova York)
   sinal.py             # sinal de decisão, tendência por prazo e do mercado geral
   apresentacao.py      # componentes visuais (HTML/CSS) do painel de decisão
   diagnostico.py       # diagnóstico textual e eventos

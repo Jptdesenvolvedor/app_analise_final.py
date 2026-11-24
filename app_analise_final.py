@@ -16,11 +16,15 @@ import re
 import pandas as pd
 import streamlit as st
 
-from analise import base_local
+from analise import base_local, premercado
 from analise import data as dados
 from analise.backtest import ESTRATEGIAS, executar_backtest, executar_treino_teste
+from analise.analistas import buscar_analistas
 from analise.apresentacao import cartao_decisao, lista_motivos
-from analise.charts import OpcoesGrafico, grafico_backtest, grafico_comparacao, grafico_principal
+from analise.charts import (
+    OpcoesGrafico, grafico_alvos, grafico_backtest, grafico_comparacao, grafico_principal,
+    grafico_recomendacoes, grafico_sessoes,
+)
 from analise.config import (
     ATIVOS_FIXOS, INTERVALOS_INTRADAY, INTERVALOS_UI, MIN_CANDLES, PERIODOS_UI,
     compatibilizar_periodo_intervalo,
@@ -58,6 +62,21 @@ def baixar(ticker: str, periodo: str, intervalo_real: str, fonte: str = "yahoo")
     if fonte == "local":
         return base_local.baixar_local(ticker, periodo, intervalo_real)
     return dados.baixar_dados(ticker, periodo, intervalo_real)
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def analistas_do_ativo(ticker: str):
+    return buscar_analistas(ticker)
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def sessao_do_ativo(ticker: str):
+    return premercado.buscar_sessao(ticker)
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def intraday_estendido(ticker: str) -> pd.DataFrame:
+    return premercado.buscar_intraday(ticker)
 
 
 @st.cache_data(ttl=600, show_spinner=False)
@@ -151,6 +170,7 @@ with st.sidebar:
             suporte_resistencia=st.checkbox("Suporte / resistência", True),
             estocastico=st.checkbox("Estocástico", False),
             volume_financeiro=st.checkbox("Volume financeiro (Volume × Close)", False),
+            alvos_analistas=st.checkbox("Preço-alvo dos analistas", False),
         )
 
         modo_fib = st.radio(
@@ -226,9 +246,11 @@ if bench:
         extras.append(tendencia_mercado(d_b["Close"], bench[1]))
     except Exception:  # noqa: BLE001 — o mercado geral é informativo; sem ele o painel segue
         pass
+analistas = analistas_do_ativo(ticker) if not cripto else None
+sessao = sessao_do_ativo(ticker) if premercado.suporta(ticker) else None
 st.markdown(
     cartao_decisao(decisao, nome_ativo, ticker, float(ultimo),
-                   None if pd.isna(variacao) else float(variacao), ts_txt, extras),
+                   None if pd.isna(variacao) else float(variacao), ts_txt, extras, analistas, sessao),
     unsafe_allow_html=True,
 )
 if params.intervalo_real != "1d":
@@ -241,10 +263,10 @@ with st.expander("🔎 Por que este sinal?"):
 
 intraday_horario = params.intervalo_real in {"15m", "30m", "1h"} and not params.resample_4h
 
-(aba_graf, aba_diag, aba_regime, aba_bt, aba_comp, aba_fund, aba_ri, aba_noticias, aba_dados,
- aba_fontes) = st.tabs(
-    ["📈 Gráfico", "📍 Diagnóstico e alertas", "🧭 Regime e risco", "🧪 Backtest",
-     "⚖️ Comparar ativos", "🏢 Fundamentos", "🏛️ RI e resultados", "📰 Notícias", "📄 Dados", "🔗 Fontes"]
+(aba_graf, aba_diag, aba_regime, aba_bt, aba_comp, aba_fund, aba_analistas, aba_pre, aba_ri, aba_noticias,
+ aba_dados, aba_fontes) = st.tabs(
+    ["📈 Gráfico", "📍 Diagnóstico e alertas", "🧭 Regime e risco", "🧪 Backtest", "⚖️ Comparar ativos",
+     "🏢 Fundamentos", "🎯 Analistas", "🌅 Pré-mercado", "🏛️ RI e resultados", "📰 Notícias", "📄 Dados", "🔗 Fontes"]
 )
 
 # --------------------------------------------------------------------------- #
@@ -254,7 +276,9 @@ with aba_graf:
     sr = suporte_resistencia(df) if op.suporte_resistencia else None
     titulo = f"{nome_ativo} — {periodo_label if not params.aviso else params.periodo} / {intervalo_label}"
     st.plotly_chart(
-        grafico_principal(df, titulo, op, fib, sr, cripto=cripto, intraday_horario=intraday_horario),
+        grafico_principal(df, titulo, op, fib, sr, cripto=cripto, intraday_horario=intraday_horario,
+                          alvos=({"baixo": analistas.baixo, "media": analistas.media, "alto": analistas.alto}
+                                 if analistas else None)),
         width="stretch",
     )
     if fib:
@@ -445,6 +469,119 @@ with aba_fund:
         for i, (rotulo, valor) in enumerate(itens_f):
             cols[i % 3].metric(rotulo, formatar_valor(rotulo, valor))
         st.caption("Valores como informados pelo Yahoo Finance; confirme no RI/CVM/SEC (aba Fontes).")
+
+# --------------------------------------------------------------------------- #
+with aba_analistas:
+    if cripto or analistas is None:
+        st.info("Sem cobertura de analistas para este ativo no Yahoo Finance (comum em criptomoedas, muitos ETFs "
+                "e ações de menor porte).")
+    else:
+        a = analistas
+
+        def _delta(x):
+            return None if x is None else f"{x:+.1%}"
+
+        m1 = st.columns(4)
+        m1[0].metric("Alvo médio", fmt_usd(a.media), _delta(a.upside_media))
+        m1[1].metric("Alvo mediano", fmt_usd(a.mediana), _delta(a.upside_mediana))
+        m1[2].metric("Alvo máximo", fmt_usd(a.alto), _delta(a.upside_alto))
+        m1[3].metric("Alvo mínimo", fmt_usd(a.baixo), _delta(a.upside_baixo))
+        m2 = st.columns(4)
+        m2[0].metric("Analistas", "—" if not a.n else a.n)
+        m2[1].metric("Recomendação média", a.recomendacao or "—",
+                     None if a.nota is None else f"nota {a.nota:.1f} (1 = compra forte, 5 = venda forte)",
+                     delta_color="off")
+        m2[2].metric("% recomendando compra", "—" if a.pct_compra is None else f"{a.pct_compra:.0%}")
+        m2[3].metric("Divergência entre analistas", "—" if a.dispersao is None else f"{a.dispersao:.0%}",
+                     help="(alvo máximo − alvo mínimo) ÷ alvo médio. Acima de ~60% = opiniões muito divergentes.")
+        if a.leitura:
+            st.markdown(f"**Leitura:** {a.leitura}")
+        st.plotly_chart(grafico_alvos(a), width="stretch")
+        if a.distribuicao:
+            st.plotly_chart(grafico_recomendacoes(a), width="stretch")
+
+        st.subheader("Revisões recentes")
+        if a.revisoes.empty:
+            st.caption("Sem histórico de revisões para este ativo.")
+        else:
+            tend = a.tendencia_alvos()
+            r1, r2 = st.columns(2)
+            r1.metric("Alvos elevados (90 dias)", tend["subiu"])
+            r2.metric("Alvos reduzidos (90 dias)", tend["baixou"])
+            rev = a.revisoes.head(25)
+            st.dataframe(pd.DataFrame({
+                "Data": rev["data"].dt.strftime("%d/%m/%Y"),
+                "Casa": rev["casa"],
+                "Recomendação": rev["de"].fillna("—").astype(str) + " → " + rev["para"].fillna("—").astype(str),
+                "Alvo": rev.apply(lambda x: f"{'—' if pd.isna(x['alvo_anterior']) else format(x['alvo_anterior'], ',.2f')}"
+                                            f" → {'—' if pd.isna(x['alvo_atual']) else format(x['alvo_atual'], ',.2f')}",
+                                  axis=1),
+                "Movimento do alvo": rev["alvo_acao"].map(
+                    {"Raises": "⬆️ Subiu", "Lowers": "⬇️ Baixou", "Maintains": "➡️ Manteve",
+                     "Announces": "🆕 Definiu", "Initiates": "🆕 Iniciou"}).fillna("—"),
+            }), hide_index=True, width="stretch")
+        st.caption(
+            "Dados de consenso do Yahoo Finance. Preços-alvo de analistas costumam ser otimistas e raramente acertam "
+            "o preço em 12 meses; os analistas também se contradizem (um ativo pode ter alvo bem acima do preço "
+            "enquanto a tendência é de queda). Por isso **não entram no sinal de decisão** do app — não há histórico "
+            "para validar se ajudam. Use como termômetro de consenso, não como previsão.")
+
+# --------------------------------------------------------------------------- #
+with aba_pre:
+    if not premercado.suporta(ticker):
+        st.info("Pré-mercado e after-hours existem para **ações e ETFs dos EUA**. A B3 tem outro calendário e as "
+                "criptomoedas negociam 24 horas por dia.")
+    else:
+        sess = sessao
+        hist_ext = intraday_estendido(ticker)
+        if sess is None and hist_ext.empty:
+            st.warning("Não foi possível obter dados de pré-mercado agora (o Yahoo pode estar limitando requisições).")
+        else:
+            if sess is not None:
+                n1, n2, n3, n4 = st.columns(4)
+                n1.metric("Mercado agora", sess.rotulo)
+                n2.metric("Último preço regular", fmt_usd(sess.preco_regular))
+                if sess.tem_estendido:
+                    n3.metric("Pré-mercado" if sess.estado == "PRE" else "After-hours",
+                              f"{sess.preco_estendido:,.2f}", f"{sess.var_estendida:+.2%} vs. {sess.referencia}")
+                else:
+                    n3.metric("Pré/after-hours", "—", help="Sem negociação estendida no momento.")
+                n4.metric("Fechamento anterior", fmt_usd(sess.fechamento_anterior))
+                if sess.horario is not None:
+                    st.caption(f"Dado estendido de {sess.horario:%d/%m/%Y %H:%M} (Brasília). "
+                               "Pré-mercado: 06h–10h30 de Brasília (04h–09h30 em Nova York); after-hours: até 22h.")
+            if hist_ext.empty:
+                st.info("Sem candles de horário estendido para este ativo.")
+            else:
+                ultimas = premercado.ultimas_sessoes(hist_ext, 2)
+                ref = premercado.fechamento_anterior_do_ultimo_dia(hist_ext)
+                st.plotly_chart(grafico_sessoes(ultimas, ref), width="stretch")
+
+                st.subheader("O pré-mercado antecipa o dia?")
+                hp = premercado.historico_premercado(hist_ext)
+                if hp.empty:
+                    st.caption("Histórico insuficiente para a análise.")
+                else:
+                    taxa, n_dias = premercado.taxa_de_acerto(hp)
+                    taxa_g, n_g = premercado.taxa_de_acerto(hp, 0.003)
+                    q1, q2 = st.columns(2)
+                    q1.metric("Direção do pré = direção do dia", "—" if taxa is None else f"{taxa:.0%}",
+                              f"{n_dias} dias", delta_color="off")
+                    q2.metric("Quando o gap foi ≥ 0,3%", "—" if taxa_g is None else f"{taxa_g:.0%}",
+                              f"{n_g} dias", delta_color="off")
+                    tabela = pd.DataFrame({
+                        "Dia": hp["data"].dt.strftime("%d/%m/%Y"),
+                        "Pré-mercado": hp["gap_pre"].map(lambda x: f"{x:+.2%}"),
+                        "Abertura": hp["gap_aber"].map(lambda x: f"{x:+.2%}"),
+                        "Dia (fech. a fech.)": hp["dia"].map(lambda x: f"{x:+.2%}"),
+                        "Pré acertou a direção?": hp["acertou"].map({True: "✅", False: "❌"}).fillna("—"),
+                    }).head(15)
+                    st.dataframe(tabela, hide_index=True, width="stretch")
+                    st.caption(
+                        f"Últimos {len(hp)} pregões disponíveis (o Yahoo guarda ~60 dias de candles de 5 min). Pré = "
+                        "último preço antes das 09h30 de Nova York contra o fechamento do dia anterior. Amostra "
+                        "pequena: serve para dar contexto, não como sinal de compra ou venda. O pré-mercado tem pouco "
+                        "volume e spreads largos, então movimentos podem não se sustentar na abertura.")
 
 # --------------------------------------------------------------------------- #
 with aba_ri:
