@@ -3,6 +3,12 @@
 Aplicação web (Streamlit) para análise técnica de ações e criptomoedas, com dados do Yahoo Finance.
 
 ## 🚀 Funcionalidades
+- **Painel de decisão** no topo: selo grande **COMPRAR · MANTER · AGUARDAR · REDUZIR · VENDER**, pontuação de −100 a +100
+  com barra de zonas, nível de confiança, **tendência de curto, médio e longo prazo** (alta/baixa/lateral e força) e a
+  **tendência do mercado geral** (S&P 500 para ações dos EUA, Ibovespa para ações do Brasil, Bitcoin para cripto),
+  além de stop e alvo sugeridos e a explicação regra a regra ("Por que este sinal?").
+  É um sinal **automático** baseado nas regras validadas (regime MA200, modelo de tendência, momentum e timing), calibrado
+  para candles diários — não é recomendação de investimento.
 - **Ativos:** lista (BR/EUA/Cripto) ou ticker manual (`TSLA`, `PETR4.SA`, `BTC-USD`).
 - **Períodos:** `7d` a `10y`. **Intervalos:** `15m`, `30m`, `1h`, `4h` (resample de 1h), `1d`, `1wk`, `1mo`.
   Combinações não suportadas pelo Yahoo (15m/30m ≤ 60 dias; 1h/4h ≤ ~700 dias) são ajustadas com aviso.
@@ -33,6 +39,8 @@ analise/
   data.py              # download (retentativas), normalização, resample
   indicators.py        # indicadores, Fibonacci (período e perna recente), suporte/resistência
   regime.py            # regime defensivo, modelo de tendência, momentum, tamanho de posição
+  sinal.py             # sinal de decisão, tendência por prazo e do mercado geral
+  apresentacao.py      # componentes visuais (HTML/CSS) do painel de decisão
   diagnostico.py       # diagnóstico textual e eventos
   backtest.py          # estratégias e métricas
   charts.py            # gráficos Plotly

@@ -18,6 +18,7 @@ import streamlit as st
 
 from analise import data as dados
 from analise.backtest import ESTRATEGIAS, executar_backtest, executar_treino_teste
+from analise.apresentacao import cartao_decisao, lista_motivos
 from analise.charts import OpcoesGrafico, grafico_backtest, grafico_comparacao, grafico_principal
 from analise.config import (
     ATIVOS_FIXOS, INTERVALOS_INTRADAY, INTERVALOS_UI, MIN_CANDLES, PERIODOS_UI,
@@ -31,6 +32,7 @@ from analise.indicators import (
 from analise.regime import (
     BANDA_PADRAO, checklist_tendencia, dimensionar_posicao, estado_defensivo, momentum_12_1,
 )
+from analise.sinal import calcular_decisao, tendencia_mercado
 from analise.sources import FONTES_GERAIS, FONTES_OFICIAIS, eh_ticker_cripto, montar_links_cruzados
 
 st.set_page_config(page_title="Análise Técnica de Ativos", page_icon="📊", layout="wide")
@@ -51,6 +53,16 @@ TOM_ICONE = {"alta": "🟢", "baixa": "🔴", "neutro": "⚪"}
 def baixar(ticker: str, periodo: str, intervalo_real: str) -> pd.DataFrame:
     # Erros/vazio levantam exceção e, portanto, não ficam em cache.
     return dados.baixar_dados(ticker, periodo, intervalo_real)
+
+
+def benchmark_do_ativo(ticker: str) -> tuple[str, str] | None:
+    """Índice de referência do 'mercado geral' para o ativo: (ticker, nome)."""
+    t = ticker.upper()
+    if t.endswith(".SA"):
+        return "^BVSP", "Ibovespa"
+    if t.endswith("-USD"):
+        return None if t == "BTC-USD" else ("BTC-USD", "Bitcoin")
+    return "SPY", "S&P 500"
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -84,7 +96,7 @@ with st.sidebar:
         ticker = st.text_input("Ticker (ex.: AAPL, PETR4.SA, BTC-USD):", "AAPL").strip().upper()
         nome_ativo = ticker
 
-    periodo_label = st.selectbox("Período:", list(PERIODOS_UI), index=4)
+    periodo_label = st.selectbox("Período:", list(PERIODOS_UI), index=5)
     intervalo_label = st.selectbox("Intervalo:", list(INTERVALOS_UI), index=4)
     periodo, intervalo_ui = PERIODOS_UI[periodo_label], INTERVALOS_UI[intervalo_label]
 
@@ -149,10 +161,31 @@ if params.intervalo_real in INTERVALOS_INTRADAY and getattr(ts, "tzinfo", None) 
 else:
     ts_txt = f"{ts:%d/%m/%Y}"
 variacao = df["Close"].pct_change().iloc[-1] if n > 1 else float("nan")
-st.success(f"**{nome_ativo}** ({ticker}) — último: **{ultimo:,.2f}** "
-           f"({variacao:+.2%} no último candle) em {ts_txt}")
-
 cripto = eh_ticker_cripto(ticker)
+
+# Painel de decisão: sinal, tendência por prazo e do mercado geral
+decisao = calcular_decisao(df)
+extras = []
+bench = benchmark_do_ativo(ticker)
+if bench:
+    try:
+        d_b = baixar(bench[0], "2y", "1d")
+        extras.append(tendencia_mercado(d_b["Close"], bench[1]))
+    except Exception:  # noqa: BLE001 — o mercado geral é informativo; sem ele o painel segue
+        pass
+st.markdown(
+    cartao_decisao(decisao, nome_ativo, ticker, float(ultimo),
+                   None if pd.isna(variacao) else float(variacao), ts_txt, extras),
+    unsafe_allow_html=True,
+)
+if params.intervalo_real != "1d":
+    st.caption("ℹ️ O sinal foi calibrado para candles **diários**. Em intervalos curtos use-o apenas como referência.")
+with st.expander("🔎 Por que este sinal?"):
+    st.markdown(lista_motivos(decisao))
+    st.caption("Pontuação: regime de longo prazo (±40), modelo de tendência (±20), momentum (±10), médio prazo (±15) "
+               "e curto prazo (±15). ≥ +50 comprar · +15 a +50 manter · −15 a +15 aguardar · −50 a −15 reduzir · "
+               "≤ −50 vender. Veja a aba Backtest para o histórico das regras neste ativo.")
+
 intraday_horario = params.intervalo_real in {"15m", "30m", "1h"} and not params.resample_4h
 
 aba_graf, aba_diag, aba_regime, aba_bt, aba_comp, aba_fund, aba_dados, aba_fontes = st.tabs(
