@@ -7,7 +7,8 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from .indicators import encontrar_pivots
+from .indicators import calcular_fibonacci_perna, encontrar_pivots
+from .regime import BANDA_PADRAO, checklist_tendencia, estado_defensivo, momentum_12_1
 
 
 @dataclass
@@ -127,6 +128,58 @@ def diagnosticar(df: pd.DataFrame) -> list[ItemDiagnostico]:
     else:
         itens.append(ItemDiagnostico("Divergência RSI", "Nenhuma divergência recente.", "neutro"))
 
+    itens.extend(_diagnostico_estrategico(df, preco))
+    return itens
+
+
+def _diagnostico_estrategico(df: pd.DataFrame, preco: float) -> list[ItemDiagnostico]:
+    """Itens baseados nas regras que sobreviveram a backtests longos fora da amostra."""
+    itens: list[ItemDiagnostico] = []
+    close = df["Close"]
+
+    # Regime defensivo (MA200 com banda de 2%)
+    ma200 = _ultimo(df, "MA200")
+    if np.isnan(ma200) or len(close) < 200:
+        itens.append(ItemDiagnostico("Regime (núcleo defensivo)", "Precisa de 200 candles.", "neutro"))
+    else:
+        investido = bool(estado_defensivo(close).iloc[-1])
+        dist = preco / ma200 - 1
+        itens.append(ItemDiagnostico(
+            "Regime (núcleo defensivo)",
+            f"{'INVESTIDO' if investido else 'EM CAIXA'} — preço {dist:+.1%} da MA200 "
+            f"(entra acima de +{BANDA_PADRAO:.0%}, sai abaixo de −{BANDA_PADRAO:.0%}).",
+            "alta" if investido else "baixa"))
+
+    # Modelo de tendência (Minervini/O'Neil)
+    crit = checklist_tendencia(close)
+    if crit is None:
+        itens.append(ItemDiagnostico("Modelo de tendência", "Precisa de 252 candles.", "neutro"))
+    else:
+        ok = sum(c.ok for c in crit)
+        itens.append(ItemDiagnostico(
+            "Modelo de tendência", f"{ok} de {len(crit)} critérios atendidos"
+            + (" — tendência de alta confirmada." if ok == len(crit) else "."),
+            "alta" if ok == len(crit) else ("neutro" if ok >= 4 else "baixa")))
+
+    # Momentum 12-1
+    mom = momentum_12_1(close)
+    if np.isnan(mom):
+        itens.append(ItemDiagnostico("Momentum 12-1", "Precisa de 253 candles diários.", "neutro"))
+    else:
+        itens.append(ItemDiagnostico("Momentum 12-1", f"{mom:+.1%} (12 meses, sem o último mês).",
+                                     "alta" if mom > 0 else "baixa"))
+
+    # Fibonacci da perna recente
+    fib = calcular_fibonacci_perna(df)
+    if fib is None:
+        itens.append(ItemDiagnostico("Fibonacci (perna recente)", "Sem perna de alta recente relevante.", "neutro"))
+    else:
+        zona = "dentro da zona de ouro (38,2%–61,8%)" if fib.na_zona_ouro else "fora da zona de ouro"
+        itens.append(ItemDiagnostico(
+            "Fibonacci (perna recente)",
+            f"Retração de {fib.retracao_atual:.0%} da última alta — {zona}. Alvo 127,2%: "
+            f"{fib.extensoes['127.2%']:,.2f}. Em testes longos, usar Fibonacci como gatilho de compra "
+            "NÃO melhorou o resultado; trate como referência visual.", "neutro"))
     return itens
 
 
