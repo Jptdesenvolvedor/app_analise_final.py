@@ -146,3 +146,13 @@ def test_zonas_da_barra_batem_com_os_limiares():
         meio = inicio + largura / 2                       # centro da zona
         assert _acao_do_score(meio).capitalize() == nome, (nome, meio)
         inicio += largura
+
+
+def test_sem_regime_de_longo_prazo_o_sinal_nao_e_firme():
+    """Listagem recente (120 candles) em queda forte: sem MA200 não dá para dizer VENDER; aguarda e explica."""
+    queda = calcular_indicadores(ohlc(com_ruido(np.linspace(100, 20, 120))))
+    d = calcular_decisao(queda)
+    assert d.acao == "AGUARDAR" and d.confianca == "Baixa" and "insuficiente" in d.resumo.lower()
+    assert d.score < -50                                   # a pontuação continua mostrando a direção
+    com_historico = calcular_decisao(calcular_indicadores(ohlc(com_ruido(np.linspace(400, 60, 500)))))
+    assert com_historico.acao == "VENDER"                  # com 200+ candles o sinal firme volta

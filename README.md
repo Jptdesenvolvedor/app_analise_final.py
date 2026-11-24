@@ -3,6 +3,11 @@
 Aplicação web (Streamlit) para análise técnica de ações e criptomoedas, com dados do Yahoo Finance.
 
 ## 🚀 Funcionalidades
+- **Página inicial "🏠 Mercado":** as **50 maiores empresas listadas nos EUA** por valor de mercado (screener do Yahoo, uma
+  ação por empresa, ADRs incluídos) com preço, variação no dia/mês/ano, **sinal de decisão** de cada uma, tendência de
+  longo prazo e distância da MA200; os três índices (S&P 500, Nasdaq, Dow) com a tendência; a amplitude do mercado
+  (quantas empresas em cada sinal, % acima da MA200, % em alta no dia); maiores altas e quedas; filtro por sinal, busca e
+  ordenação. **Clique numa linha** (ou use o botão "Analisar") para abrir a análise completa da empresa.
 - **Painel de decisão** no topo: selo grande **COMPRAR · MANTER · AGUARDAR · REDUZIR · VENDER**, pontuação de −100 a +100
   com barra de zonas, nível de confiança, **tendência de curto, médio e longo prazo** (alta/baixa/lateral e força) e a
   **tendência do mercado geral** (S&P 500 para ações dos EUA, Ibovespa para ações do Brasil, Bitcoin para cripto),
@@ -54,6 +59,7 @@ analise/
   base_local.py        # leitura da base local (candles Alpaca, notícias, RI/balanços da SEC)
   analistas.py         # preço-alvo e recomendações dos analistas (Yahoo)
   premercado.py        # pré-mercado e after-hours (sessões de Nova York)
+  mercado.py           # as maiores empresas dos EUA, sinal de cada uma e amplitude do mercado
   sinal.py             # sinal de decisão, tendência por prazo e do mercado geral
   apresentacao.py      # componentes visuais (HTML/CSS) do painel de decisão
   diagnostico.py       # diagnóstico textual e eventos
