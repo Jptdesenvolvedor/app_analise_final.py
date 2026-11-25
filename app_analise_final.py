@@ -44,9 +44,30 @@ def _mostrar_erro_de_importacao(exc: BaseException) -> None:
     st.stop()
 
 
+def _tique_de_atualizacao(estado) -> bool:
+    """Chamada a cada execução do fragmento-relógio. A 1ª execução (logo após uma execução completa do app) só arma o
+    relógio; as seguintes pedem a reexecução completa. Sem essa trava o app reexecutaria em laço."""
+    if estado.get("_tique_armado"):
+        return True
+    estado["_tique_armado"] = True
+    return False
+
+
+def _agendar_atualizacao(segundos: int) -> None:
+    """Reexecuta o app inteiro a cada `segundos` (usado só com o pregão aberto)."""
+    st.session_state["_tique_armado"] = False          # toda execução completa reinicia a contagem
+
+    @st.fragment(run_every=f"{segundos}s")
+    def _relogio():
+        if _tique_de_atualizacao(st.session_state):
+            st.rerun()
+
+    _relogio()
+
+
 _purgar_modulos_antigos(st.session_state)
 try:
-    from analise import base_local, mercado, premercado
+    from analise import base_local, mercado, pregao, premercado
     from analise import data as dados
     from analise.backtest import ESTRATEGIAS, executar_backtest, executar_treino_teste
     from analise.analistas import buscar_analistas
@@ -91,13 +112,15 @@ if "_ir_para" in st.session_state:        # clique numa empresa da tabela do mer
 st.session_state.setdefault("ticker_manual", "AAPL")
 st.session_state.setdefault("_tab_n", 0)
 
+BALDE = 0            # muda a cada intervalo de atualização (0 = cache normal); faz parte da chave dos caches abaixo
+_H = pregao.horas_dos_eua_em_brasilia()   # horários do pregão dos EUA em Brasília (acompanham o horário de verão)
 FONTE_LOCAL = False  # definido na barra lateral (só existe se a base local estiver presente)
 
 # --------------------------------------------------------------------------- #
 # Camadas com cache (o Streamlit reexecuta o script a cada interação)
 # --------------------------------------------------------------------------- #
 @st.cache_data(ttl=300, show_spinner=False, max_entries=128)
-def baixar(ticker: str, periodo: str, intervalo_real: str, fonte: str = "yahoo") -> pd.DataFrame:
+def baixar(ticker: str, periodo: str, intervalo_real: str, fonte: str = "yahoo", balde: int = 0) -> pd.DataFrame:
     # Erros/vazio levantam exceção e, portanto, não ficam em cache.
     if fonte == "local":
         return base_local.baixar_local(ticker, periodo, intervalo_real)
@@ -110,24 +133,24 @@ def analistas_do_ativo(ticker: str):
 
 
 @st.cache_data(ttl=60, show_spinner=False)
-def sessao_do_ativo(ticker: str):
+def sessao_do_ativo(ticker: str, balde: int = 0):
     return premercado.buscar_sessao(ticker)
 
 
 @st.cache_data(ttl=120, show_spinner=False)
-def intraday_estendido(ticker: str) -> pd.DataFrame:
+def intraday_estendido(ticker: str, balde: int = 0) -> pd.DataFrame:
     return premercado.buscar_intraday(ticker)
 
 
 @st.cache_data(ttl=900, show_spinner=False)
-def dados_mercado(n: int = 50):
+def dados_mercado(n: int = 50, balde: int = 0):
     """(tabela das n maiores empresas, ao_vivo). Cacheado por 15 minutos."""
     top, ao_vivo = mercado.buscar_top(n)
     return mercado.montar_tabela(top, mercado.baixar_lote([t["ticker"] for t in top])), ao_vivo
 
 
 @st.cache_data(ttl=900, show_spinner=False)
-def indices_mercado() -> pd.DataFrame:
+def indices_mercado(balde: int = 0) -> pd.DataFrame:
     return mercado.resumo_indices()
 
 
@@ -177,7 +200,7 @@ def preparar(ticker: str, periodo: str, intervalo_ui: str, intervalo_label: str)
     """Baixa, reamostra (4h) e calcula indicadores. Retorna (df, params)."""
     params = compatibilizar_periodo_intervalo(periodo, intervalo_ui, intervalo_label)
     fonte = "local" if usa_base_local(ticker, params.intervalo_real, params.resample_4h) else "yahoo"
-    bruto = baixar(ticker, params.periodo, params.intervalo_real, fonte)
+    bruto = baixar(ticker, params.periodo, params.intervalo_real, fonte, BALDE)
     if params.resample_4h:
         bruto = dados.resample_ohlcv(bruto, "4h", cripto=eh_ticker_cripto(ticker))
         if bruto.empty:
@@ -236,17 +259,47 @@ with st.sidebar:
         st.caption("Escolha uma empresa na tabela para abrir a análise completa dela.")
 
     st.divider()
+    auto_ligado = st.checkbox(
+        "🔄 Atualizar sozinho durante o pregão", True,
+        help=f"Com o pregão aberto, a tela se atualiza sozinha no intervalo escolhido. Fora do horário de pregão "
+             f"nada muda. EUA: {_H['abre']}–{_H['fecha']} (Brasília, hoje); B3: 10h–18h; cripto: sempre.")
+    auto_rotulo = st.selectbox("Atualizar a cada:", list(pregao.INTERVALOS_AUTO), index=1, disabled=not auto_ligado)
+
+    st.divider()
     st.caption(
         "⚠️ Ferramenta educacional. Dados gratuitos do Yahoo Finance, com possíveis "
         "atrasos e ajustes retroativos. Não é recomendação de investimento."
     )
 
+# --- atualização automática: só com o pregão aberto
+_ref_pregao = "SPY" if pagina == PAG_MERCADO else ticker
+_intervalo_auto = pregao.intervalo_efetivo(pregao.INTERVALOS_AUTO[auto_rotulo], pagina == PAG_MERCADO)
+_estado_yahoo = None
+if auto_ligado and pregao.tipo_de_mercado(_ref_pregao) == pregao.US:
+    _sess_ref = sessao_do_ativo(_ref_pregao, pregao.balde(_intervalo_auto))   # o Yahoo sabe dos feriados
+    _estado_yahoo = _sess_ref.estado if _sess_ref is not None else None
+atualizando = bool(auto_ligado and pregao.pregao_aberto(_ref_pregao, estado_yahoo=_estado_yahoo))
+if atualizando:
+    BALDE = pregao.balde(_intervalo_auto)
+    _agendar_atualizacao(_intervalo_auto)
+with st.sidebar:
+    _hora = pd.Timestamp.now(tz="America/Sao_Paulo").strftime("%H:%M:%S")
+    _nome_int = {v: k for k, v in pregao.INTERVALOS_AUTO.items()}.get(_intervalo_auto, f"{_intervalo_auto}s")
+    if atualizando:
+        st.caption(f"🟢 Pregão aberto — atualizando a cada {_nome_int}"
+                   + (" (mínimo desta página)" if pagina == PAG_MERCADO and _intervalo_auto != pregao.INTERVALOS_AUTO[auto_rotulo] else "")
+                   + f". Última atualização: **{_hora}** (Brasília).")
+    elif auto_ligado:
+        st.caption(f"⚪ Pregão fechado — a atualização automática volta quando abrir. Dados de {_hora} (Brasília).")
+    else:
+        st.caption("Atualização automática desligada.")
+
 if pagina == PAG_MERCADO:
     st.subheader("🏠 Mercado dos EUA — as 50 maiores empresas")
     with st.spinner("Carregando o mercado (50 empresas)..."):
         try:
-            tabela, ao_vivo = dados_mercado(50)
-            indices = indices_mercado()
+            tabela, ao_vivo = dados_mercado(50, BALDE)
+            indices = indices_mercado(BALDE)
         except Exception as e:  # noqa: BLE001 — qualquer falha de rede vira aviso amigável
             st.warning(f"Não foi possível carregar o mercado agora ({e}). Tente novamente em alguns minutos.")
             st.stop()
@@ -405,12 +458,12 @@ extras = []
 bench = benchmark_do_ativo(ticker)
 if bench:
     try:
-        d_b = baixar(bench[0], "2y", "1d")
+        d_b = baixar(bench[0], "2y", "1d", "yahoo", BALDE)
         extras.append(tendencia_mercado(d_b["Close"], bench[1]))
     except Exception:  # noqa: BLE001 — o mercado geral é informativo; sem ele o painel segue
         pass
 analistas = analistas_do_ativo(ticker) if not cripto else None
-sessao = sessao_do_ativo(ticker) if premercado.suporta(ticker) else None
+sessao = sessao_do_ativo(ticker, BALDE) if premercado.suporta(ticker) else None
 st.markdown(
     cartao_decisao(decisao, nome_ativo, ticker, float(ultimo),
                    None if pd.isna(variacao) else float(variacao), ts_txt, extras, analistas, sessao),
@@ -696,7 +749,7 @@ with aba_pre:
                 "criptomoedas negociam 24 horas por dia.")
     else:
         sess = sessao
-        hist_ext = intraday_estendido(ticker)
+        hist_ext = intraday_estendido(ticker, BALDE)
         if sess is None and hist_ext.empty:
             st.warning("Não foi possível obter dados de pré-mercado agora (o Yahoo pode estar limitando requisições).")
         else:
@@ -712,7 +765,8 @@ with aba_pre:
                 n4.metric("Fechamento anterior", fmt_usd(sess.fechamento_anterior))
                 if sess.horario is not None:
                     st.caption(f"Dado estendido de {sess.horario:%d/%m/%Y %H:%M} (Brasília). "
-                               "Pré-mercado: 06h–10h30 de Brasília (04h–09h30 em Nova York); after-hours: até 22h.")
+                               f"Hoje, em Brasília: pré-mercado a partir das {_H['pre']}, pregão das {_H['abre']} às {_H['fecha']} e "
+                               f"after-hours até {_H['pos']} (04h–20h em Nova York; muda com o horário de verão dos EUA).")
             if hist_ext.empty:
                 st.info("Sem candles de horário estendido para este ativo.")
             else:
