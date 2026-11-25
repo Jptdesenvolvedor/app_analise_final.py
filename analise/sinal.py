@@ -21,6 +21,9 @@ import pandas as pd
 
 from .regime import BANDA_PADRAO, checklist_tendencia, estado_defensivo, momentum_12_1
 
+# Sem o regime de longo prazo (200 candles) só sobram médio e curto prazo (30 de 100 pontos): pouco para um sinal firme.
+MIN_COBERTURA = 55
+
 ACOES = {
     "COMPRAR": "alta",
     "MANTER": "alta",
@@ -208,7 +211,7 @@ def calcular_decisao(df: pd.DataFrame) -> Decisao:
         motivos.append(Motivo("alta", "RSI em sobrevenda", f"RSI {rsi:.0f} — possível repique, mas contra a tendência."))
 
     score = float(np.clip(sum(pontos) / disponivel * 100, -100, 100)) if disponivel else 0.0
-    acao = _acao_do_score(score) if disponivel >= 30 else "AGUARDAR"
+    acao = _acao_do_score(score) if disponivel >= MIN_COBERTURA else "AGUARDAR"
     if acao == "COMPRAR" and esticado:
         acao = "MANTER"
 
@@ -231,7 +234,7 @@ def calcular_decisao(df: pd.DataFrame) -> Decisao:
 
 
 def _resumo(acao: str, longa: Tendencia, media: Tendencia, curta: Tendencia, disponivel: float, esticado: bool) -> str:
-    if disponivel < 30:
+    if disponivel < MIN_COBERTURA:
         return "Histórico insuficiente para um sinal confiável — carregue um período maior (diário, 2 anos ou mais)."
     trio = ", ".join(f"{t.prazo.lower()}: {t.rotulo.lower()}" for t in (curta, media, longa))
     frase = {
