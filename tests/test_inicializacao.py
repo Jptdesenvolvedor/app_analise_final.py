@@ -13,13 +13,18 @@ import pytest
 APP = pathlib.Path(__file__).resolve().parents[1] / "app_analise_final.py"
 
 
-def carregar(nome_funcao: str, **ambiente):
+def carregar_varias(nomes, **ambiente):
+    """Executa as funções (do topo do app) `nomes` num mesmo namespace e o devolve."""
     arvore = ast.parse(APP.read_text(encoding="utf-8"))
-    func = next(n for n in arvore.body if isinstance(n, ast.FunctionDef) and n.name == nome_funcao)
-    modulo = ast.Module(body=[func], type_ignores=[])
+    funcs = [n for n in arvore.body if isinstance(n, ast.FunctionDef) and n.name in nomes]
+    assert {f.name for f in funcs} == set(nomes), f"funções ausentes no app: {set(nomes) - {f.name for f in funcs}}"
     ns = dict(ambiente)
-    exec(compile(modulo, str(APP), "exec"), ns)
-    return ns[nome_funcao]
+    exec(compile(ast.Module(body=funcs, type_ignores=[]), str(APP), "exec"), ns)
+    return ns
+
+
+def carregar(nome_funcao: str, **ambiente):
+    return carregar_varias([nome_funcao], **ambiente)[nome_funcao]
 
 
 class SysFalso:
@@ -114,3 +119,69 @@ def test_o_app_protege_as_importacoes_do_pacote():
     assert any(isinstance(h.type, ast.Name) and h.type.id == "ImportError" for h in tentativas[0].handlers)
     fora = [n for n in arvore.body if isinstance(n, ast.ImportFrom) and (n.module or "").startswith("analise")]
     assert not fora, f"importações do pacote fora do bloco protegido: {[n.module for n in fora]}"
+
+
+# ----------------------------- relógio de atualização automática -----------
+class StRelogio:
+    """`st` falso: guarda o fragmento agendado e conta as reexecuções pedidas."""
+
+    def __init__(self):
+        self.session_state = {}
+        self.fragmentos = []
+        self.reruns = 0
+        self.run_every = []
+
+    def fragment(self, run_every=None):
+        def decorador(func):
+            self.run_every.append(run_every)
+            self.fragmentos.append(func)
+            return func
+        return decorador
+
+    def rerun(self):
+        self.reruns += 1
+
+
+def _montar_relogio():
+    st = StRelogio()
+    ns = carregar_varias(["_tique_de_atualizacao", "_agendar_atualizacao"], st=st)
+    return st, ns["_agendar_atualizacao"]
+
+
+def test_tique_primeira_execucao_so_arma_e_a_seguinte_pede_rerun():
+    tique = carregar("_tique_de_atualizacao")
+    estado = {}
+    assert tique(estado) is False          # logo após a execução completa: só arma
+    assert tique(estado) is True           # passou o intervalo: pede a reexecução
+    assert tique(estado) is True
+    estado["_tique_armado"] = False        # nova execução completa reinicia
+    assert tique(estado) is False
+
+
+def test_relogio_nao_entra_em_laco_depois_de_reexecutar():
+    st, agendar = _montar_relogio()
+    agendar(60)                            # execução completa nº 1: define o fragmento e o executa uma vez
+    assert st.run_every == ["60s"] and st.reruns == 0
+    fragmento = st.fragmentos[0]
+    fragmento()                            # passou 1 intervalo → pede reexecução do app
+    assert st.reruns == 1
+    agendar(60)                            # o app reexecutou: o relógio é reiniciado e NÃO pede outra reexecução na hora
+    assert st.reruns == 1
+    st.fragmentos[-1]()                    # só no próximo intervalo
+    assert st.reruns == 2
+
+
+def test_relogio_usa_o_intervalo_pedido():
+    for seg in (30, 60, 300):
+        st, agendar = _montar_relogio()
+        agendar(seg)
+        assert st.run_every == [f"{seg}s"]
+
+
+def test_interacao_do_usuario_reinicia_a_contagem():
+    st, agendar = _montar_relogio()
+    agendar(60)
+    st.fragmentos[0]()                     # um tique já armado → pediria reexecução
+    assert st.reruns == 1
+    agendar(60)                            # o usuário clicou em algo (execução completa): contagem recomeça
+    assert st.session_state["_tique_armado"] is True and st.reruns == 1

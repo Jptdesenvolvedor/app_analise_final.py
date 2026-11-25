@@ -3,6 +3,11 @@
 Aplicação web (Streamlit) para análise técnica de ações e criptomoedas, com dados do Yahoo Finance.
 
 ## 🚀 Funcionalidades
+- **Atualização automática durante o pregão:** na barra lateral, "🔄 Atualizar sozinho durante o pregão" (ligado por padrão)
+  com intervalo de 30 s, 1 min ou 5 min. Só atualiza com o pregão **aberto** (EUA 09h30–16h de Nova York, que em Brasília é
+  11h30–18h no inverno dos EUA e 10h30–17h no verão; B3 10h–18h; cripto sempre) e confere o estado do mercado no Yahoo
+  para não atualizar em feriado. Fora do pregão a tela fica parada. A página do mercado (50 empresas) atualiza no mínimo
+  a cada 5 minutos, para não sobrecarregar o Yahoo. A barra lateral mostra a hora da última atualização.
 - **Página inicial "🏠 Mercado":** as **50 maiores empresas listadas nos EUA** por valor de mercado (screener do Yahoo, uma
   ação por empresa, ADRs incluídos) com preço, variação no dia/mês/ano, **sinal de decisão** de cada uma, tendência de
   longo prazo e distância da MA200; os três índices (S&P 500, Nasdaq, Dow) com a tendência; a amplitude do mercado
@@ -60,6 +65,7 @@ analise/
   analistas.py         # preço-alvo e recomendações dos analistas (Yahoo)
   premercado.py        # pré-mercado e after-hours (sessões de Nova York)
   mercado.py           # as maiores empresas dos EUA, sinal de cada uma e amplitude do mercado
+  pregao.py            # horário do pregão (EUA/B3/cripto) e tempo de atualização automática
   sinal.py             # sinal de decisão, tendência por prazo e do mercado geral
   apresentacao.py      # componentes visuais (HTML/CSS) do painel de decisão
   diagnostico.py       # diagnóstico textual e eventos
