@@ -12,33 +12,65 @@ investimento. Confirme os números nas fontes oficiais (aba "Fontes").
 from __future__ import annotations
 
 import re
+import sys
+import traceback
 
 import pandas as pd
 import streamlit as st
 
-from analise import base_local, mercado, premercado
-from analise import data as dados
-from analise.backtest import ESTRATEGIAS, executar_backtest, executar_treino_teste
-from analise.analistas import buscar_analistas
-from analise.apresentacao import cartao_decisao, lista_motivos
-from analise.charts import (
-    OpcoesGrafico, grafico_alvos, grafico_backtest, grafico_comparacao, grafico_principal,
-    grafico_recomendacoes, grafico_sessoes,
-)
-from analise.config import (
-    ATIVOS_FIXOS, INTERVALOS_INTRADAY, INTERVALOS_UI, MIN_CANDLES, PERIODOS_UI,
-    compatibilizar_periodo_intervalo,
-)
-from analise.diagnostico import detectar_eventos, diagnosticar
-from analise.fundamentos import buscar_fundamentos, formatar_valor
-from analise.indicators import (
-    calcular_fibonacci, calcular_fibonacci_perna, calcular_indicadores, suporte_resistencia,
-)
-from analise.regime import (
-    BANDA_PADRAO, checklist_tendencia, dimensionar_posicao, estado_defensivo, momentum_12_1,
-)
-from analise.sinal import calcular_decisao, tendencia_mercado
-from analise.sources import FONTES_GERAIS, FONTES_OFICIAIS, eh_ticker_cripto, montar_links_cruzados
+
+def _purgar_modulos_antigos(estado) -> bool:
+    """Descarta da memória os módulos `analise*` já carregados, uma vez por sessão do navegador.
+
+    Num deploy (ex.: Streamlit Cloud) os arquivos podem mudar sem o processo reiniciar; os módulos antigos continuam
+    em `sys.modules` e as importações de nomes novos falham com ImportError. Recarregar do disco no início de cada
+    sessão elimina esse problema (as reexecuções da mesma sessão não repetem a limpeza).
+    """
+    if estado.get("_modulos_ok"):
+        return False
+    for nome in [n for n in sys.modules if n == "analise" or n.startswith("analise.")]:
+        del sys.modules[nome]
+    estado["_modulos_ok"] = True
+    return True
+
+
+def _mostrar_erro_de_importacao(exc: BaseException) -> None:
+    """Mostra o erro REAL de importação (o Streamlit redige a mensagem padrão) e interrompe o app."""
+    st.set_page_config(page_title="Análise Técnica de Ativos", page_icon="📊")
+    st.error("Não foi possível carregar os módulos do app.")
+    st.code("".join(traceback.format_exception(type(exc), exc, exc.__traceback__)), language="text")
+    st.info("Se você acabou de atualizar o código, abra **Manage app → Reboot app**. Se o erro continuar, envie o "
+            "texto acima ao responsável pelo app.")
+    st.stop()
+
+
+_purgar_modulos_antigos(st.session_state)
+try:
+    from analise import base_local, mercado, premercado
+    from analise import data as dados
+    from analise.backtest import ESTRATEGIAS, executar_backtest, executar_treino_teste
+    from analise.analistas import buscar_analistas
+    from analise.apresentacao import cartao_decisao, lista_motivos
+    from analise.charts import (
+        OpcoesGrafico, grafico_alvos, grafico_backtest, grafico_comparacao, grafico_principal,
+        grafico_recomendacoes, grafico_sessoes,
+    )
+    from analise.config import (
+        ATIVOS_FIXOS, INTERVALOS_INTRADAY, INTERVALOS_UI, MIN_CANDLES, PERIODOS_UI,
+        compatibilizar_periodo_intervalo,
+    )
+    from analise.diagnostico import detectar_eventos, diagnosticar
+    from analise.fundamentos import buscar_fundamentos, formatar_valor
+    from analise.indicators import (
+        calcular_fibonacci, calcular_fibonacci_perna, calcular_indicadores, suporte_resistencia,
+    )
+    from analise.regime import (
+        BANDA_PADRAO, checklist_tendencia, dimensionar_posicao, estado_defensivo, momentum_12_1,
+    )
+    from analise.sinal import calcular_decisao, tendencia_mercado
+    from analise.sources import FONTES_GERAIS, FONTES_OFICIAIS, eh_ticker_cripto, montar_links_cruzados
+except ImportError as _erro_importacao:
+    _mostrar_erro_de_importacao(_erro_importacao)
 
 st.set_page_config(page_title="Análise Técnica de Ativos", page_icon="📊", layout="wide")
 st.title("📊 Análise Técnica Avançada de Ativos")
