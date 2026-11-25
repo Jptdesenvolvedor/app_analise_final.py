@@ -16,6 +16,7 @@ import re
 import pandas as pd
 import streamlit as st
 
+from analise import base_local
 from analise import data as dados
 from analise.backtest import ESTRATEGIAS, executar_backtest, executar_treino_teste
 from analise.apresentacao import cartao_decisao, lista_motivos
@@ -46,13 +47,44 @@ TICKER_RE = re.compile(r"^[A-Z0-9.\-^=]{1,15}$")
 TOM_ICONE = {"alta": "🟢", "baixa": "🔴", "neutro": "⚪"}
 
 
+FONTE_LOCAL = False  # definido na barra lateral (só existe se a base local estiver presente)
+
 # --------------------------------------------------------------------------- #
 # Camadas com cache (o Streamlit reexecuta o script a cada interação)
 # --------------------------------------------------------------------------- #
 @st.cache_data(ttl=300, show_spinner=False, max_entries=128)
-def baixar(ticker: str, periodo: str, intervalo_real: str) -> pd.DataFrame:
+def baixar(ticker: str, periodo: str, intervalo_real: str, fonte: str = "yahoo") -> pd.DataFrame:
     # Erros/vazio levantam exceção e, portanto, não ficam em cache.
+    if fonte == "local":
+        return base_local.baixar_local(ticker, periodo, intervalo_real)
     return dados.baixar_dados(ticker, periodo, intervalo_real)
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def noticias_locais(ticker: str) -> pd.DataFrame:
+    return base_local.noticias(ticker, 300)
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def ri_local(ticker: str):
+    return (base_local.resultados_trimestrais(ticker), base_local.reacao_a_resultados(ticker),
+            base_local.comunicados(ticker, 60))
+
+
+def usa_base_local(ticker: str, intervalo_real: str, resample_4h: bool = False) -> bool:
+    """A base local é usada se foi escolhida, tem o ticker e o intervalo é diário/semanal/mensal."""
+    return bool(FONTE_LOCAL and not resample_4h and intervalo_real in base_local.INTERVALOS_SUPORTADOS
+                and base_local.tem_candles(ticker))
+
+
+def fmt_usd(x) -> str:
+    if x is None or pd.isna(x):
+        return "—"
+    a = abs(x)
+    for lim, suf in ((1e9, " bi"), (1e6, " mi"), (1e3, " mil")):
+        if a >= lim:
+            return f"{x / lim:,.2f}{suf}"
+    return f"{x:,.2f}"
 
 
 def benchmark_do_ativo(ticker: str) -> tuple[str, str] | None:
@@ -73,7 +105,8 @@ def fundamentos(ticker: str) -> dict:
 def preparar(ticker: str, periodo: str, intervalo_ui: str, intervalo_label: str):
     """Baixa, reamostra (4h) e calcula indicadores. Retorna (df, params)."""
     params = compatibilizar_periodo_intervalo(periodo, intervalo_ui, intervalo_label)
-    bruto = baixar(ticker, params.periodo, params.intervalo_real)
+    fonte = "local" if usa_base_local(ticker, params.intervalo_real, params.resample_4h) else "yahoo"
+    bruto = baixar(ticker, params.periodo, params.intervalo_real, fonte)
     if params.resample_4h:
         bruto = dados.resample_ohlcv(bruto, "4h", cripto=eh_ticker_cripto(ticker))
         if bruto.empty:
@@ -95,6 +128,13 @@ with st.sidebar:
     else:
         ticker = st.text_input("Ticker (ex.: AAPL, PETR4.SA, BTC-USD):", "AAPL").strip().upper()
         nome_ativo = ticker
+
+    if base_local.disponivel():
+        FONTE_LOCAL = st.radio(
+            "Fonte dos dados:", ["Yahoo Finance", "Base local (Alpaca)"],
+            help="A base local tem candles diários de ~4.000 ações dos EUA (10 anos, Alpaca SIP), notícias e RI "
+                 "da SEC. Ações brasileiras e cripto continuam vindo do Yahoo.",
+        ).startswith("Base")
 
     periodo_label = st.selectbox("Período:", list(PERIODOS_UI), index=5)
     intervalo_label = st.selectbox("Intervalo:", list(INTERVALOS_UI), index=4)
@@ -147,6 +187,19 @@ except Exception as e:  # noqa: BLE001 — qualquer falha inesperada vira mensag
 if params.aviso:
     st.info(params.aviso)
 
+if FONTE_LOCAL:
+    if usa_base_local(ticker, params.intervalo_real, params.resample_4h):
+        defasagem = (pd.Timestamp.now().normalize() - df.index[-1].normalize()).days
+        st.caption(f"📦 Dados da **base local** (Alpaca SIP), até {df.index[-1]:%d/%m/%Y}.")
+        if defasagem > 5:
+            st.warning(f"A base local está **{defasagem} dias defasada**. Rode a coleta do Robo Trade para atualizar "
+                       "ou volte para a fonte Yahoo Finance.")
+    else:
+        motivo = ("este intervalo não existe na base (só 1 dia, 1 semana e 1 mês)"
+                  if params.intervalo_real not in base_local.INTERVALOS_SUPORTADOS or params.resample_4h
+                  else "este ativo não está na base (só ações/ETFs dos EUA)")
+        st.info(f"Usando Yahoo Finance: {motivo}.")
+
 n = len(df)
 if n < 15:
     st.warning(f"⚠️ Apenas {n} candles — poucos para indicadores confiáveis. Use um período maior.")
@@ -188,9 +241,10 @@ with st.expander("🔎 Por que este sinal?"):
 
 intraday_horario = params.intervalo_real in {"15m", "30m", "1h"} and not params.resample_4h
 
-aba_graf, aba_diag, aba_regime, aba_bt, aba_comp, aba_fund, aba_dados, aba_fontes = st.tabs(
+(aba_graf, aba_diag, aba_regime, aba_bt, aba_comp, aba_fund, aba_ri, aba_noticias, aba_dados,
+ aba_fontes) = st.tabs(
     ["📈 Gráfico", "📍 Diagnóstico e alertas", "🧭 Regime e risco", "🧪 Backtest",
-     "⚖️ Comparar ativos", "🏢 Fundamentos", "📄 Dados", "🔗 Fontes"]
+     "⚖️ Comparar ativos", "🏢 Fundamentos", "🏛️ RI e resultados", "📰 Notícias", "📄 Dados", "🔗 Fontes"]
 )
 
 # --------------------------------------------------------------------------- #
@@ -391,6 +445,96 @@ with aba_fund:
         for i, (rotulo, valor) in enumerate(itens_f):
             cols[i % 3].metric(rotulo, formatar_valor(rotulo, valor))
         st.caption("Valores como informados pelo Yahoo Finance; confirme no RI/CVM/SEC (aba Fontes).")
+
+# --------------------------------------------------------------------------- #
+with aba_ri:
+    if not base_local.disponivel():
+        st.info("Esta aba usa a **base local** do Robo Trade (RI e balanços da SEC), que não está disponível "
+                "neste ambiente. Os dados oficiais ficam em sec.gov/edgar (ações dos EUA) e na CVM (Brasil).")
+    elif not base_local.tem_ri(ticker):
+        st.info(f"Sem RI na base local para **{ticker}**. A base cobre cerca de 380 das maiores empresas "
+                "dos EUA; ações brasileiras e cripto não estão incluídas.")
+    else:
+        resultados, reacao, comunicados_df = ri_local(ticker)
+        st.write("Resultados e comunicados de RI direto da **SEC** (data e hora em que o mercado soube).")
+
+        st.subheader("Resultados trimestrais")
+        if resultados.empty:
+            st.caption("Sem balanços estruturados para esta empresa (comum em empresas estrangeiras).")
+        else:
+            ult = resultados.iloc[0]
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Último trimestre", f"{ult['trimestre']:%m/%Y}", f"publicado em {ult['publicado']:%d/%m/%Y}",
+                      delta_color="off")
+            c2.metric("Lucro por ação (a/a)", "—" if pd.isna(ult["lpa"]) else f"{ult['lpa']:.2f}",
+                      None if pd.isna(ult["cresc_lpa"]) else f"{ult['cresc_lpa']:+.1%}")
+            c3.metric("Receita (a/a)", fmt_usd(ult["receita"]),
+                      None if pd.isna(ult["cresc_receita"]) else f"{ult['cresc_receita']:+.1%}")
+            tab = pd.DataFrame({
+                "Trimestre": resultados["trimestre"].dt.strftime("%m/%Y"),
+                "Publicado": resultados["publicado"].dt.strftime("%d/%m/%Y"),
+                "Receita": resultados["receita"].map(fmt_usd),
+                "Cresc. receita a/a": resultados["cresc_receita"].map(lambda x: "—" if pd.isna(x) else f"{x:+.1%}"),
+                "Lucro líquido": resultados["lucro_liquido"].map(fmt_usd),
+                "LPA diluído": resultados["lpa"].map(lambda x: "—" if pd.isna(x) else f"{x:.2f}"),
+                "Cresc. LPA a/a": resultados["cresc_lpa"].map(lambda x: "—" if pd.isna(x) else f"{x:+.1%}"),
+            })
+            st.dataframe(tab, hide_index=True, width="stretch")
+            st.caption("Valores em dólares, como reportados na primeira publicação (sem reapresentações). "
+                       "Crescimento = contra o mesmo trimestre do ano anterior.")
+
+        st.subheader("Como o preço reagiu aos resultados")
+        if reacao.empty:
+            st.caption("Sem histórico de candles suficiente para medir a reação.")
+        else:
+            rt = pd.DataFrame({
+                "Divulgado (Brasília)": reacao["divulgado"].dt.strftime("%d/%m/%Y %H:%M"),
+                "Reação no pregão": reacao["reacao_em"].dt.strftime("%d/%m/%Y"),
+                "Variação": reacao["variacao"].map(lambda x: f"{x:+.1%}"),
+                "Volume vs. média 50d": reacao["volume_x"].map(lambda x: "—" if pd.isna(x) else f"{x:.1f}×"),
+            })
+            st.dataframe(rt, hide_index=True, width="stretch")
+            st.caption("Resultado divulgado após o fechamento de Nova York reage no pregão seguinte. Nos nossos "
+                       "testes em centenas de empresas, a reação ao resultado não foi um sinal consistente de compra.")
+
+        st.subheader("Comunicados recentes à SEC")
+        so_resultados = st.checkbox("Mostrar só divulgações de resultados", False)
+        cm = comunicados_df[comunicados_df["resultado"]] if so_resultados else comunicados_df
+        cm = cm.head(25)
+        st.dataframe(pd.DataFrame({
+            "Quando (Brasília)": cm["quando"].dt.strftime("%d/%m/%Y %H:%M"),
+            "Tipo": cm["tipo"], "Assunto": cm["assunto"],
+        }), hide_index=True, width="stretch")
+
+# --------------------------------------------------------------------------- #
+with aba_noticias:
+    if not base_local.disponivel():
+        st.info("Esta aba usa a **base local** do Robo Trade (notícias da Alpaca), que não está disponível neste ambiente.")
+    elif not base_local.tem_noticias(ticker):
+        st.info(f"Sem notícias na base local para **{ticker}**. A cobertura é das 500 ações mais líquidas dos EUA.")
+    else:
+        nt = noticias_locais(ticker)
+        if nt.empty:
+            st.caption("Nenhuma notícia registrada para este ativo.")
+        else:
+            busca = st.text_input("Filtrar por palavra no título ou resumo:", "").strip()
+            if busca:
+                alvo = (nt["titulo"].fillna("") + " " + nt["resumo"].fillna("")).str.contains(busca, case=False, regex=False)
+                nt = nt[alvo]
+            sete = nt[nt["data"] >= pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=7)]
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Notícias listadas", len(nt))
+            m2.metric("Últimos 7 dias", len(sete))
+            m3.metric("Fontes", nt["fonte"].nunique())
+            for _, r in nt.head(30).iterrows():
+                quando = r["data"].tz_convert("America/Sao_Paulo")
+                st.markdown(f"**{r['titulo']}**  \n"
+                            f"<small>{quando:%d/%m/%Y %H:%M} · {r['fonte']}</small>", unsafe_allow_html=True)
+                if isinstance(r["resumo"], str) and r["resumo"].strip():
+                    with st.expander("Resumo"):
+                        st.write(r["resumo"])
+            st.caption("Notícias da API da Alpaca. O histórico gratuito só começa em abril/2026, então ainda não dá "
+                       "para testar o efeito delas no preço; por isso o app não tenta classificar sentimento.")
 
 # --------------------------------------------------------------------------- #
 with aba_dados:

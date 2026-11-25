@@ -27,6 +27,13 @@ Aplicação web (Streamlit) para análise técnica de ações e criptomoedas, co
   (Minervini/O'Neil, 6 critérios), momentum 12-1 e **calculadora de tamanho de posição** por risco fixo
   (stop em N×ATR, teto por ativo; frações de unidade em cripto).
 - **Comparação de ativos** (base 100) e **fundamentos** básicos (P/L, P/VP, valor de mercado…).
+- **Base local (opcional):** se a pasta de dados do Robo Trade existir (`ANALISE_BASE_LOCAL`, padrão `E:/Robo Trade 1`), a
+  barra lateral ganha **"Fonte dos dados: Yahoo Finance / Base local (Alpaca)"**. A base tem candles diários de ~4.000 ações
+  dos EUA (10 anos, Alpaca SIP, incluindo empresas que saíram da bolsa), e habilita duas abas:
+  **🏛️ RI e resultados** (resultados trimestrais e crescimento a/a, reação do preço a cada divulgação, comunicados
+  8-K/10-Q/10-K com data e hora de aceite na SEC) e **📰 Notícias** (API da Alpaca, desde abril/2026).
+  O app avisa quando a base está defasada e volta ao Yahoo para ativos ou intervalos que ela não cobre
+  (ações do Brasil, cripto, intraday). Sem a pasta (ex.: Streamlit Cloud) nada muda: segue só com o Yahoo.
 - **Fontes e validação:** links de RI, CVM/SEC e provedores; exportação dos dados em CSV.
 
 > ⚠️ Ferramenta educacional. Não é recomendação de investimento; o backtest não inclui impostos nem slippage.
@@ -39,6 +46,7 @@ analise/
   data.py              # download (retentativas), normalização, resample
   indicators.py        # indicadores, Fibonacci (período e perna recente), suporte/resistência
   regime.py            # regime defensivo, modelo de tendência, momentum, tamanho de posição
+  base_local.py        # leitura da base local (candles Alpaca, notícias, RI/balanços da SEC)
   sinal.py             # sinal de decisão, tendência por prazo e do mercado geral
   apresentacao.py      # componentes visuais (HTML/CSS) do painel de decisão
   diagnostico.py       # diagnóstico textual e eventos
