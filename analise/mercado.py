@@ -13,6 +13,7 @@ import pandas as pd
 
 from .data import normalizar_colunas
 from .indicators import calcular_indicadores
+from .premercado import montar_sessao
 from .sinal import calcular_decisao, tendencia_longa
 
 INDICES = {"^GSPC": "S&P 500", "^IXIC": "Nasdaq", "^DJI": "Dow Jones"}
@@ -50,8 +51,10 @@ def selecionar_top(quotes: list[dict], n: int = 50) -> list[dict]:
             continue
         if not isinstance(cap, (int, float)) or not cap > 0 or np.isnan(cap):
             continue
+        sess = montar_sessao(q)                           # pré-mercado / after-hours já vêm no screener
         candidatas.append({"ticker": sym, "nome": q.get("shortName") or q.get("longName") or sym, "cap": float(cap),
-                           "bolsa": q.get("exchange", ""), "volume": float(q.get("averageDailyVolume3Month") or 0)})
+                           "bolsa": q.get("exchange", ""), "volume": float(q.get("averageDailyVolume3Month") or 0),
+                           "sessao": sess.estado, "ext_preco": sess.preco_estendido, "ext_var": sess.var_estendida})
     melhor: dict[str, dict] = {}
     for c in candidatas:                                  # uma por empresa: a classe mais negociada
         k = chave_empresa(c["nome"]) or c["ticker"]
@@ -125,7 +128,9 @@ def montar_tabela(top: list[dict], dados: dict[str, pd.DataFrame]) -> pd.DataFra
         r = resumo_ticker(dados[emp["ticker"]]) if emp["ticker"] in dados else None
         if r is None:
             continue
-        linhas.append({"posicao": pos, "ticker": emp["ticker"], "empresa": emp["nome"], "cap": emp["cap"], **r})
+        linhas.append({"posicao": pos, "ticker": emp["ticker"], "empresa": emp["nome"], "cap": emp["cap"],
+                       "sessao": emp.get("sessao"), "ext_preco": emp.get("ext_preco"),
+                       "ext_var": emp.get("ext_var"), **r})
     return pd.DataFrame(linhas)
 
 

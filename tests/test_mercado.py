@@ -37,7 +37,7 @@ def test_selecionar_top_dedup_filtra_e_ordena():
     for lixo in ("SPYX", "SEMCAP", "ZERO", "NAN"):                   # ETF, sem valor de mercado, zero e NaN
         assert lixo not in tickers
     assert [t["cap"] for t in top] == sorted((t["cap"] for t in top), reverse=True)
-    assert set(top[0]) == {"ticker", "nome", "cap", "bolsa"}
+    assert set(top[0]) == {"ticker", "nome", "cap", "bolsa", "sessao", "ext_preco", "ext_var"}
 
 
 def test_selecionar_top_respeita_n_e_lista_vazia():
@@ -114,3 +114,13 @@ def test_amplitude_vazia_e_leitura():
     assert "bom fôlego" in m.leitura_mercado({"pct_acima_ma200": 0.8})
     assert "dividido" in m.leitura_mercado({"pct_acima_ma200": 0.5})
     assert "fraco" in m.leitura_mercado({"pct_acima_ma200": 0.2})
+
+
+def test_selecionar_top_leva_o_pre_mercado_do_screener():
+    q = [{"symbol": "AAA", "shortName": "Aaa Inc", "marketCap": 2e9, "marketState": "PRE", "regularMarketPrice": 100.0,
+          "preMarketPrice": 102.0, "preMarketChangePercent": 2.0},
+         {"symbol": "BBB", "shortName": "Bbb Inc", "marketCap": 1e9, "marketState": "REGULAR", "regularMarketPrice": 50.0}]
+    top = {t["ticker"]: t for t in m.selecionar_top(q, 5)}
+    assert top["AAA"]["sessao"] == "PRE" and top["AAA"]["ext_var"] == pytest.approx(0.02)
+    assert top["AAA"]["ext_preco"] == 102.0
+    assert top["BBB"]["ext_var"] is None

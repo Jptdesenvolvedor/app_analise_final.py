@@ -313,6 +313,14 @@ if pagina == PAG_MERCADO:
             col.metric(ix["indice"], f"{ix['preco']:,.0f}", f"{ix['var_dia']:+.2%}")
             col.caption(f"Tendência longa: **{ix['tendencia']}** · sinal: {ix['acao'].title()}")
 
+    # --- sessão atual (pré-mercado / regular / after-hours) e quantas empresas já têm cotação estendida
+    _est = tabela["sessao"].dropna().mode() if "sessao" in tabela else []
+    if len(_est) and _est.iloc[0] in ("PRE", "POST"):
+        _n_ext = int(pd.to_numeric(tabela["ext_var"], errors="coerce").notna().sum())
+        st.info(f"🌅 **{premercado.ROTULOS[_est.iloc[0]]}** em andamento — {_n_ext} das {len(tabela)} empresas já têm "
+                f"cotação estendida (coluna **Pré/after (%)**, contra o último fechamento). "
+                f"Pregão regular: {_H['abre']} às {_H['fecha']} (Brasília).")
+
     # --- amplitude
     amp = mercado.amplitude(tabela)
     cores = {"COMPRAR": "#16a34a", "MANTER": "#65a30d", "AGUARDAR": "#6b7280", "REDUZIR": "#d97706", "VENDER": "#dc2626"}
@@ -332,7 +340,7 @@ if pagina == PAG_MERCADO:
     f1, f2, f3 = st.columns([2, 2, 2])
     sinais_sel = f1.multiselect("Filtrar por sinal:", list(cores), default=[], placeholder="Todos os sinais")
     ordem = f2.selectbox("Ordenar por:", ["Valor de mercado", "Variação no dia", "Variação no mês",
-                                          "Variação no ano", "Pontuação do sinal"])
+                                          "Variação no ano", "Pré/after-hours", "Pontuação do sinal"])
     busca = f3.text_input("Buscar empresa ou ticker:", "").strip()
     vis = tabela.copy()
     if sinais_sel:
@@ -341,14 +349,15 @@ if pagina == PAG_MERCADO:
         vis = vis[vis["ticker"].str.contains(busca, case=False, regex=False)
                   | vis["empresa"].str.contains(busca, case=False, regex=False)]
     chave, cresc = {"Valor de mercado": ("posicao", True), "Variação no dia": ("var_dia", False),
-                    "Variação no mês": ("var_mes", False), "Variação no ano": ("var_ano", False),
+                    "Variação no mês": ("var_mes", False), "Variação no ano": ("var_ano", False), "Pré/after-hours": ("ext_var", False),
                     "Pontuação do sinal": ("score", False)}[ordem]
     vis = vis.sort_values(chave, ascending=cresc, na_position="last").reset_index(drop=True)
 
     exib = pd.DataFrame({
         "#": vis["posicao"], "Ticker": vis["ticker"], "Empresa": vis["empresa"],
         "Valor de mercado (US$ bi)": vis["cap"] / 1e9, "Preço": vis["preco"],
-        "Dia (%)": vis["var_dia"] * 100, "Mês (%)": vis["var_mes"] * 100, "Ano (%)": vis["var_ano"] * 100,
+        "Dia (%)": vis["var_dia"] * 100,
+        "Pré/after (%)": pd.to_numeric(vis.get("ext_var"), errors="coerce") * 100, "Mês (%)": vis["var_mes"] * 100, "Ano (%)": vis["var_ano"] * 100,
         "Sinal": vis["acao"].map(lambda a: f"{mercado.ACAO_ICONE[a]} {a}"), "Pontuação": vis["score"],
         "Tendência longa": vis["tendencia"], "vs. MA200 (%)": vis["dist_ma200"] * 100,
     })
@@ -361,6 +370,9 @@ if pagina == PAG_MERCADO:
             "Valor de mercado (US$ bi)": st.column_config.NumberColumn(format="%.0f"),
             "Preço": st.column_config.NumberColumn(format="%.2f"),
             "Dia (%)": st.column_config.NumberColumn(format="%+.2f"),
+            "Pré/after (%)": st.column_config.NumberColumn(
+                format="%+.2f", help="Variação no pré-mercado (antes da abertura) ou no after-hours (depois do "
+                                     "fechamento) contra o último fechamento. Vazio = sem negociação estendida agora."),
             "Mês (%)": st.column_config.NumberColumn(format="%+.1f"),
             "Ano (%)": st.column_config.NumberColumn(format="%+.1f"),
             "Pontuação": st.column_config.NumberColumn(format="%+.0f", help="−100 (vender) a +100 (comprar)"),
