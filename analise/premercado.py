@@ -152,12 +152,24 @@ def buscar_sessao(ticker: str) -> Sessao | None:
         return None
 
 
-def buscar_intraday(ticker: str, periodo: str = "60d") -> pd.DataFrame:
+DIAS_INTRADAY = 57   # o Yahoo só guarda ~60 dias de candles de 5 min; margem para não estourar o limite
+
+
+def inicio_intraday(agora=None, dias: int = DIAS_INTRADAY) -> str:
+    """Data inicial (AAAA-MM-DD) da busca de candles de 5 min.
+
+    Usa `start=` e não `period=`: com `period="60d"` o Yahoo devolve os dados só até o último pregão
+    encerrado e deixa de fora o pré-mercado do dia em andamento, justamente o que a aba precisa mostrar."""
+    t = pd.Timestamp.now() if agora is None else pd.Timestamp(agora)
+    return (t - pd.Timedelta(days=dias)).strftime("%Y-%m-%d")
+
+
+def buscar_intraday(ticker: str) -> pd.DataFrame:
     """Candles de 5 minutos com horário estendido; vazio se o Yahoo não responder."""
     import yfinance as yf
 
     try:
-        h = yf.Ticker(ticker).history(period=periodo, interval="5m", prepost=True)
+        h = yf.Ticker(ticker).history(start=inicio_intraday(), interval="5m", prepost=True)
     except Exception:
         return pd.DataFrame()
     return h if h is not None and not h.empty else pd.DataFrame()

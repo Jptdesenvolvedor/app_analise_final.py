@@ -165,3 +165,9 @@ def test_fechamento_anterior_do_ultimo_dia():
     c = candles(DIAS[:3], [0.0, 0.01, 0.0], [0.02, 0.01, 0.0], base=100.0)
     assert pm.fechamento_anterior_do_ultimo_dia(c) == pytest.approx(100 * 1.02 * 1.01, rel=1e-6)   # fecha do dia 17
     assert pm.fechamento_anterior_do_ultimo_dia(candles(DIAS[:1], [0.0], [0.0])) is None          # só um dia
+
+
+def test_inicio_intraday_usa_data_dentro_do_limite_do_yahoo():
+    # `period="60d"` esconde o pré-mercado de hoje; `start=` precisa ficar dentro dos 60 dias do Yahoo
+    assert pm.inicio_intraday("2026-11-27 06:00:00") == "2026-10-01"
+    assert pm.DIAS_INTRADAY < 60
